@@ -1,0 +1,4 @@
+body { background: #f8f9fa; }
+.card-title { font-weight: 600; }
+#healthStatus.ok { color: green; }
+#healthStatus.fail { color: red; }

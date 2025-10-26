@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Flask on EKS - Demo App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+      <div class="container-fluid">
+        <a class="navbar-brand" href="#">Flask EKS Demo</a>
+      </div>
+    </nav>
+
+    <main class="container py-4">
+      <div class="row">
+        <div class="col-md-8">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Application Info</h5>
+              <p id="message" class="card-text">{{ info.message }}</p>
+              <p class="text-muted">Version: <span id="version">{{ info.version }}</span></p>
+              <button id="refreshBtn" class="btn btn-sm btn-outline-primary">Refresh Info</button>
+            </div>
+          </div>
+
+          <div class="card mb-3">
+            <div class="card-body">
+              <h5 class="card-title">Try the API</h5>
+              <form id="greetForm">
+                <div class="mb-3">
+                  <label for="nameInput" class="form-label">Your name</label>
+                  <input type="text" class="form-control" id="nameInput" placeholder="Enter a name">
+                </div>
+                <button type="submit" class="btn btn-primary">Greet me</button>
+              </form>
+
+              <div id="greetResult" class="mt-3"></div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="col-md-4">
+          <div class="card mb-3">
+            <div class="card-body">
+              <h6 class="card-title">Health</h6>
+              <p id="healthStatus">Unknown</p>
+              <button id="healthBtn" class="btn btn-sm btn-outline-secondary">Check Health</button>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-body">
+              <h6 class="card-title">Helpful Links</h6>
+              <ul>
+                <li><a href="/api/info">/api/info (JSON)</a></li>
+                <li><a href="/healthz">/healthz (health)</a></li>
+              </ul>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </main>
+
+    <footer class="footer py-3 bg-light">
+      <div class="container text-center small">&copy; Demo - Flask on EKS</div>
+    </footer>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
+</html>
