@@ -33,7 +33,9 @@ pipeline {
                 script {
                     // use local defs to avoid creating pipeline script fields
                     def imageTag = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-                    def imageName = "${env.ECR_REPO}:${imageTag}"
+                    // ensure we have a non-null registry value (fallback to the default used in repo)
+                    def registry = (env.ECR_REPO?.trim()) ?: '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app'
+                    def imageName = "${registry}:${imageTag}"
                     // export into env for later stages
                     env.IMAGE_TAG = imageTag
                     env.IMAGE_NAME = imageName
@@ -97,19 +99,46 @@ pipeline {
                         return
                     }
 
-                    // Use a generic username/password credential binding so Jenkins jobs
-                    // that store AWS keys as 'username/password' also work.
-                    withCredentials([usernamePassword(credentialsId: env.AWS_CREDENTIALS_ID, usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                        echo 'Logging into ECR and pushing image...'
-                        sh """
-                            export AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID
-                            export AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY
-                            AWS_REGION=\${REGION}
-                            ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
-                            if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
-                            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
-                            docker push \${IMAGE_NAME}
-                        """
+                    boolean pushed = false
+
+                    // First, try the AWS-specific credentials binding (if the plugin/credential type exists)
+                    try {
+                        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
+                            echo 'Using AmazonWebServicesCredentialsBinding to push to ECR.'
+                            sh """
+                                AWS_REGION=\${REGION}
+                                ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
+                                if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
+                                aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
+                                docker push ${env.IMAGE_NAME}
+                            """
+                            pushed = true
+                        }
+                    } catch (Exception e) {
+                        echo "AmazonWebServicesCredentialsBinding failed or not available: ${e.getMessage()}"
+                        echo 'Attempting fallback to username/password credential binding...'
+                        // Fallback to usernamePassword binding (common credential type)
+                        try {
+                            withCredentials([usernamePassword(credentialsId: env.AWS_CREDENTIALS_ID, usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                                echo 'Using username/password binding to push to ECR.'
+                                sh """
+                                    export AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID
+                                    export AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY
+                                    AWS_REGION=\${REGION}
+                                    ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
+                                    if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
+                                    aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
+                                    docker push ${env.IMAGE_NAME}
+                                """
+                                pushed = true
+                            }
+                        } catch (Exception e2) {
+                            error("Failed to push image using both credential bindings: ${e2.getMessage()}")
+                        }
+                    }
+
+                    if (pushed) {
+                        echo 'Image pushed to ECR successfully.'
                     }
                 }
             }
