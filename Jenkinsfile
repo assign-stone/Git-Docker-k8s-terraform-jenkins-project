@@ -12,7 +12,6 @@ pipeline {
   options {
     skipDefaultCheckout false
     timestamps()
-    colorizeOutput() // instead of ansiColor('xterm')
   }
 
   parameters {
@@ -23,41 +22,50 @@ pipeline {
 
     stage('Checkout') {
       steps {
-        echo '📥 Checking out source code...'
-        checkout scm
+        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+          echo '📥 Checking out source code...'
+          checkout scm
+        }
       }
     }
 
     stage('Unit Test') {
       steps {
-        echo '🧪 Running tests (if any)...'
-        sh 'echo "No unit tests configured. Add tests to app/tests/ and run them here."'
+        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+          echo '🧪 Running tests (if any)...'
+          sh 'echo "No unit tests configured. Add tests to app/tests/ and run them here."'
+        }
       }
     }
 
     stage('Build Docker Image') {
       steps {
-        script {
-          COMMIT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-          IMAGE_TAG = "${COMMIT_SHA}"
-          imageName = "${ECR_REPO}:${IMAGE_TAG}"
-          echo "🐳 Building Docker image: ${imageName}"
-          sh "docker build -t ${imageName} -f app/Dockerfile app/"
+        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+          script {
+            def COMMIT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+            def IMAGE_TAG = "${COMMIT_SHA}"
+            def imageName = "${ECR_REPO}:${IMAGE_TAG}"
+            echo "🐳 Building Docker image: ${imageName}"
+            sh "docker build -t ${imageName} -f app/Dockerfile app/"
+            env.IMAGE_NAME = imageName
+          }
         }
       }
     }
 
     stage('Login & Push to ECR') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-          script {
-            echo '🔐 Logging into ECR and pushing image...'
-            sh '''
-              AWS_REGION=${region:-us-east-1}
-              ECR_REGISTRY=$(echo ${ECR_REPO} | cut -d'/' -f1)
-              aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-              docker push ${imageName}
-            '''
+        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+          withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
+            script {
+              echo '🔐 Logging into ECR and pushing image...'
+              sh '''
+                AWS_REGION=${REGION}
+                ECR_REGISTRY=$(echo ${ECR_REPO} | cut -d'/' -f1)
+                aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+                docker push ${IMAGE_NAME}
+              '''
+            }
           }
         }
       }
@@ -66,13 +74,15 @@ pipeline {
     stage('Terraform: Init & Apply') {
       when { expression { return params.RUN_TERRAFORM == true } }
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-          dir('terraform') {
-            echo '🌍 Initializing and applying Terraform...'
-            sh '''
-              terraform init -input=false
-              terraform apply -auto-approve
-            '''
+        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+          withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
+            dir('terraform') {
+              echo '🌍 Initializing and applying Terraform...'
+              sh '''
+                terraform init -input=false
+                terraform apply -auto-approve
+              '''
+            }
           }
         }
       }
@@ -80,15 +90,17 @@ pipeline {
 
     stage('Deploy to EKS') {
       steps {
-        withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
-          script {
-            echo '🚀 Deploying to Kubernetes (EKS)...'
-            sh '''
-              export KUBECONFIG=$KUBECONFIG_FILE
-              sed -i "s|<ECR_IMAGE_URI>|${imageName}|g" k8s/deployment.yaml || true
-              kubectl apply -f k8s/deployment.yaml
-              kubectl apply -f k8s/service.yaml
-            '''
+        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
+          withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
+            script {
+              echo '🚀 Deploying to Kubernetes (EKS)...'
+              sh '''
+                export KUBECONFIG=$KUBECONFIG_FILE
+                sed -i "s|<ECR_IMAGE_URI>|${IMAGE_NAME}|g" k8s/deployment.yaml || true
+                kubectl apply -f k8s/deployment.yaml
+                kubectl apply -f k8s/service.yaml
+              '''
+            }
           }
         }
       }
