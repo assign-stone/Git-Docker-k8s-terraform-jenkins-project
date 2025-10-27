@@ -63,7 +63,14 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "Building Docker image: ${env.IMAGE_NAME}"
+                    // Ensure a valid image name is composed here (don't trust env.IMAGE_NAME alone)
+                    def imageTagLocal = env.IMAGE_TAG?.trim()
+                    if (!imageTagLocal) {
+                        imageTagLocal = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                    }
+                    def registryLocal = (env.ECR_REPO?.trim()) ?: '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app'
+                    def imageNameLocal = "${registryLocal}:${imageTagLocal}"
+                    echo "Building Docker image: ${imageNameLocal}"
                     echo "Current directory:"
                     sh "pwd"
                     echo "Listing files:"
@@ -74,10 +81,12 @@ pipeline {
 
                     // Try to build only if docker is available on the agent. Capture exit codes
                     // to decide whether to skip push later.
-                    def rc = sh(returnStatus: true, script: "if command -v docker >/dev/null 2>&1; then docker build -t ${env.IMAGE_NAME} -f app/Dockerfile app/; else exit 2; fi")
+                    def rc = sh(returnStatus: true, script: "if command -v docker >/dev/null 2>&1; then docker build -t ${imageNameLocal} -f app/Dockerfile app/; else exit 2; fi")
                     if (rc == 0) {
                         env.IMAGE_BUILD_OK = 'true'
-                        echo "Docker build succeeded."
+                        // persist the built image name into env for later stages
+                        env.IMAGE_NAME = imageNameLocal
+                        echo "Docker build succeeded. Image: ${env.IMAGE_NAME}"
                     } else if (rc == 2) {
                         env.IMAGE_BUILD_OK = 'false'
                         echo "Docker CLI not found on this agent; skipping image build."
@@ -99,6 +108,15 @@ pipeline {
                         return
                     }
 
+                    // Compute the imageName to push from env (set during build) or recompute as fallback
+                    def imageNameToPush = env.IMAGE_NAME?.trim()
+                    if (!imageNameToPush) {
+                        def tagF = env.IMAGE_TAG?.trim() ?: sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                        def regF = (env.ECR_REPO?.trim()) ?: '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app'
+                        imageNameToPush = "${regF}:${tagF}"
+                        env.IMAGE_NAME = imageNameToPush
+                    }
+
                     boolean pushed = false
 
                     // First, try the AWS-specific credentials binding (if the plugin/credential type exists)
@@ -110,7 +128,7 @@ pipeline {
                                 ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
                                 if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
                                 aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
-                                docker push ${env.IMAGE_NAME}
+                                docker push ${imageNameToPush}
                             """
                             pushed = true
                         }
@@ -128,7 +146,7 @@ pipeline {
                                     ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
                                     if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
                                     aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
-                                    docker push ${env.IMAGE_NAME}
+                                    docker push ${imageNameToPush}
                                 """
                                 pushed = true
                             }
