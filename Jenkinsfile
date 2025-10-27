@@ -1,10 +1,21 @@
 pipeline {
     agent any
 
+    // Make credentials and key settings configurable via pipeline parameters so the
+    // job doesn't fail if the Jenkins instance doesn't have a credential with a
+    // hard-coded ID.
+    parameters {
+        string(name: 'AWS_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins AWS credentials id (leave blank to skip ECR push)')
+        string(name: 'KUBECONFIG_CREDENTIALS_ID', defaultValue: '', description: 'Jenkins kubeconfig file credential id (leave blank to skip k8s deploy)')
+        string(name: 'AWS_REGION', defaultValue: 'us-east-1', description: 'AWS Region')
+        string(name: 'ECR_REPO', defaultValue: '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app', description: 'ECR repo (registry/repo)')
+        booleanParam(name: 'RUN_TERRAFORM', defaultValue: false, description: 'Run terraform apply in the pipeline')
+    }
+
     environment {
-        AWS_CREDENTIALS_ID = 'aws-credentials'       // Jenkins credentials ID
-        REGION             = 'us-east-1'
-        ECR_REPO           = '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app'
+        AWS_CREDENTIALS_ID = "${params.AWS_CREDENTIALS_ID}"
+        REGION             = "${params.AWS_REGION}"
+        ECR_REPO           = "${params.ECR_REPO}"
         IMAGE_TAG          = ''
         IMAGE_NAME         = ''
     }
@@ -20,9 +31,13 @@ pipeline {
         stage('Set Image Tag') {
             steps {
                 script {
-                    IMAGE_TAG  = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-                    IMAGE_NAME = "${ECR_REPO}:${IMAGE_TAG}"
-                    echo "Image name: ${IMAGE_NAME}"
+                    // use local defs to avoid creating pipeline script fields
+                    def imageTag = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                    def imageName = "${env.ECR_REPO}:${imageTag}"
+                    // export into env for later stages
+                    env.IMAGE_TAG = imageTag
+                    env.IMAGE_NAME = imageName
+                    echo "Image name: ${env.IMAGE_NAME}"
                 }
             }
         }
@@ -30,10 +45,15 @@ pipeline {
         stage('Validate Environment Variables') {
             steps {
                 script {
-                    if (!env.REGION?.trim() || !env.ECR_REPO?.trim() || !env.AWS_CREDENTIALS_ID?.trim()) {
-                        error "Missing one or more required environment variables: REGION, ECR_REPO, or AWS_CREDENTIALS_ID"
+                    if (!env.REGION?.trim() || !env.ECR_REPO?.trim()) {
+                        error "Missing one or more required environment variables: REGION or ECR_REPO"
                     }
-                    echo "All required environment variables are set."
+                    if (!env.AWS_CREDENTIALS_ID?.trim()) {
+                        echo "WARNING: AWS_CREDENTIALS_ID not set - push to ECR will be skipped."
+                    } else {
+                        echo "AWS credentials id provided. ECR push will be attempted."
+                    }
+                    echo "Environment validated."
                 }
             }
         }
@@ -55,9 +75,14 @@ pipeline {
         }
 
         stage('Login & Push to ECR') {
+            when {
+                expression { return env.AWS_CREDENTIALS_ID?.trim() }
+            }
             steps {
-                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-                    script {
+                script {
+                    // use the credential id supplied to the job; if it fails to exist the
+                    // withCredentials call will fail -- this stage is skipped when empty.
+                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
                         echo 'Logging into ECR and pushing image...'
                         sh """
                             AWS_REGION=\${REGION}
