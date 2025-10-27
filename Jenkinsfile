@@ -61,15 +61,27 @@ pipeline {
         stage('Build Docker Image') {
             steps {
                 script {
-                    echo "Building Docker image: ${IMAGE_NAME}"
+                    echo "Building Docker image: ${env.IMAGE_NAME}"
                     echo "Current directory:"
                     sh "pwd"
                     echo "Listing files:"
                     sh "ls -la"
                     echo "Listing app folder:"
                     sh "ls -la app/"
-                    echo "Building Docker image from app/Dockerfile..."
-                    sh "docker build -t ${IMAGE_NAME} -f app/Dockerfile app/"
+                    echo "Attempting to build Docker image from app/Dockerfile..."
+
+                    // Try to build only if docker is available on the agent. Capture exit codes
+                    // to decide whether to skip push later.
+                    def rc = sh(returnStatus: true, script: "if command -v docker >/dev/null 2>&1; then docker build -t ${env.IMAGE_NAME} -f app/Dockerfile app/; else exit 2; fi")
+                    if (rc == 0) {
+                        env.IMAGE_BUILD_OK = 'true'
+                        echo "Docker build succeeded."
+                    } else if (rc == 2) {
+                        env.IMAGE_BUILD_OK = 'false'
+                        echo "Docker CLI not found on this agent; skipping image build."
+                    } else {
+                        error("Docker build failed with exit code ${rc}")
+                    }
                 }
             }
         }
@@ -80,13 +92,21 @@ pipeline {
             }
             steps {
                 script {
-                    // use the credential id supplied to the job; if it fails to exist the
-                    // withCredentials call will fail -- this stage is skipped when empty.
-                    withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
+                    if (env.IMAGE_BUILD_OK != 'true') {
+                        echo "Image was not built on this agent; skipping push to ECR."
+                        return
+                    }
+
+                    // Use a generic username/password credential binding so Jenkins jobs
+                    // that store AWS keys as 'username/password' also work.
+                    withCredentials([usernamePassword(credentialsId: env.AWS_CREDENTIALS_ID, usernameVariable: 'AWS_ACCESS_KEY_ID', passwordVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                         echo 'Logging into ECR and pushing image...'
                         sh """
+                            export AWS_ACCESS_KEY_ID=\$AWS_ACCESS_KEY_ID
+                            export AWS_SECRET_ACCESS_KEY=\$AWS_SECRET_ACCESS_KEY
                             AWS_REGION=\${REGION}
                             ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
+                            if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
                             aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
                             docker push \${IMAGE_NAME}
                         """
@@ -97,8 +117,14 @@ pipeline {
 
         stage('Post-build Cleanup') {
             steps {
-                echo 'Cleaning up local Docker images...'
-                sh "docker rmi ${IMAGE_NAME} || true"
+                script {
+                    if (env.IMAGE_BUILD_OK == 'true') {
+                        echo 'Cleaning up local Docker images...'
+                        sh "docker rmi ${env.IMAGE_NAME} || true"
+                    } else {
+                        echo 'No local image to cleanup.'
+                    }
+                }
             }
         }
     }
