@@ -53,7 +53,9 @@ pipeline {
           script {
             echo '🔐 Logging into ECR and pushing image...'
             sh '''
-              aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+              AWS_REGION=${region:-us-east-1}
+              ECR_REGISTRY=\$(echo ${ECR_REPO} | cut -d'/' -f1)
+              aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
               docker push ${imageName}
             '''
           }
