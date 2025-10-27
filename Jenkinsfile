@@ -1,126 +1,89 @@
 pipeline {
-agent any
+    agent any
 
-environment {
-    AWS_CREDENTIALS_ID        = 'aws-creds'         
-    KUBECONFIG_CREDENTIALS_ID = 'kubeconfig' 
-    ECR_REGISTRY              = '434748569332.dkr.ecr.us-east-1.amazonaws.com' 
-    ECR_REPO                  = '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app' 
-    REGION                    = 'us-east-1'
-}
-
-options {
-    skipDefaultCheckout false
-    timestamps()
-}
-
-parameters {
-    booleanParam(
-        name: 'RUN_TERRAFORM', 
-        defaultValue: false, 
-        description: 'Provision infrastructure using Terraform'
-    )
-}
-
-stages {
-
-    stage('Checkout') {
-        steps {
-            echo 'Checking out source code...'
-            checkout scm
-        }
+    environment {
+        AWS_CREDENTIALS_ID = 'aws-credentials'       // Jenkins credentials ID
+        REGION             = 'us-east-1'
+        ECR_REPO           = '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app'
+        IMAGE_TAG          = ''
+        IMAGE_NAME         = ''
     }
 
-    stage('Unit Test') {
-        steps {
-            echo 'Running tests (if any)...'
-            sh 'echo "No unit tests configured. Add tests to app/tests/ and run them here."'
+    stages {
+        stage('Checkout Code') {
+            steps {
+                echo 'Cloning repository...'
+                git branch: 'main', url: 'https://github.com/assign-stone/Git-Docker-k8s-terraform-jenkins-project.git'
+            }
         }
-    }
 
-    stage('Build Docker Image') {
-        steps {
-            script {
-                COMMIT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-                IMAGE_TAG  = "${COMMIT_SHA}"
-                IMAGE_NAME = "${ECR_REPO}:${IMAGE_TAG}"
+        stage('Set Image Tag') {
+            steps {
+                script {
+                    IMAGE_TAG  = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
+                    IMAGE_NAME = "${ECR_REPO}:${IMAGE_TAG}"
+                    echo "Image name: ${IMAGE_NAME}"
+                }
+            }
+        }
 
-                echo "Building Docker image: ${IMAGE_NAME}"
+        stage('Validate Environment Variables') {
+            steps {
+                script {
+                    if (!env.REGION?.trim() || !env.ECR_REPO?.trim() || !env.AWS_CREDENTIALS_ID?.trim()) {
+                        error "Missing one or more required environment variables: REGION, ECR_REPO, or AWS_CREDENTIALS_ID"
+                    }
+                    echo "All required environment variables are set."
+                }
+            }
+        }
 
-                sh """
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    echo "Building Docker image: ${IMAGE_NAME}"
                     echo "Current directory:"
-                    pwd
+                    sh "pwd"
                     echo "Listing files:"
-                    ls -la
+                    sh "ls -la"
                     echo "Listing app folder:"
-                    ls -la app/
+                    sh "ls -la app/"
                     echo "Building Docker image from app/Dockerfile..."
-                    docker build -t ${IMAGE_NAME} -f app/Dockerfile app/
-                """
-            }
-        }
-    }
-
-    stage('Login & Push to ECR') {
-        steps {
-            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-                script {
-                    echo 'Logging into ECR and pushing image...'
-                    sh """
-                        AWS_REGION=${REGION}
-                        ECR_REGISTRY=$(echo ${ECR_REPO} | cut -d'/' -f1)
-                        aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-                        docker push ${IMAGE_NAME}
-                    """
+                    sh "docker build -t ${IMAGE_NAME} -f app/Dockerfile app/"
                 }
             }
         }
-    }
 
-    stage('Terraform: Init & Apply') {
-        when { 
-            expression { return params.RUN_TERRAFORM == true } 
-        }
-        steps {
-            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-                dir('terraform') {
-                    echo 'Initializing and applying Terraform...'
-                    sh """
-                        terraform init -input=false
-                        terraform apply -auto-approve
-                    """
+        stage('Login & Push to ECR') {
+            steps {
+                withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
+                    script {
+                        echo 'Logging into ECR and pushing image...'
+                        sh """
+                            AWS_REGION=\${REGION}
+                            ECR_REGISTRY=\$(echo \${ECR_REPO} | cut -d'/' -f1)
+                            aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
+                            docker push \${IMAGE_NAME}
+                        """
+                    }
                 }
+            }
+        }
+
+        stage('Post-build Cleanup') {
+            steps {
+                echo 'Cleaning up local Docker images...'
+                sh "docker rmi ${IMAGE_NAME} || true"
             }
         }
     }
 
-    stage('Deploy to EKS') {
-        steps {
-            withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
-                script {
-                    echo 'Deploying to Kubernetes (EKS)...'
-                    sh """
-                        export KUBECONFIG=$KUBECONFIG_FILE
-                        sed -i "s|<ECR_IMAGE_URI>|${IMAGE_NAME}|g" k8s/deployment.yaml || true
-                        kubectl apply -f k8s/deployment.yaml
-                        kubectl apply -f k8s/service.yaml
-                    """
-                }
-            }
+    post {
+        success {
+            echo 'Build and push completed successfully.'
+        }
+        failure {
+            echo 'Build failed. Please check the Jenkins logs for details.'
         }
     }
-}
-
-post {
-    success {
-        echo 'Pipeline completed successfully.'
-        cleanWs()
-    }
-    failure {
-        echo 'Pipeline failed. Check logs for errors.'
-        cleanWs()
-    }
-}
-
-
 }
