@@ -1,11 +1,12 @@
 pipeline {
   agent any
+
   environment {
-    // Jenkins credentials: create a credential of type 'Username with password' or use 'AWS Credentials' plugin
-    // Credentials IDs referenced below must exist in Jenkins credentials store
-    AWS_CREDENTIALS_ID = 'aws-creds' // set in Jenkins
-    KUBECONFIG_CREDENTIALS_ID = 'kubeconfig' // secret file or text containing kubeconfig
-    ECR_REPO = '' // will be populated by terraform output or set as pipeline param
+    AWS_CREDENTIALS_ID = 'aws-creds'         // AWS credentials (IAM user with ECR + EKS + Terraform access)
+    KUBECONFIG_CREDENTIALS_ID = 'kubeconfig' // kubeconfig uploaded as Secret File
+    ECR_REGISTRY = '434748569332.dkr.ecr.us-east-1.amazonaws.com' // replace with your AWS account ID & region
+    ECR_REPO = '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app' // your ECR repo URI
+    REGION = 'us-east-1'
   }
 
   options {
@@ -14,15 +15,22 @@ pipeline {
     ansiColor('xterm')
   }
 
+  parameters {
+    booleanParam(name: 'RUN_TERRAFORM', defaultValue: false, description: 'Provision infrastructure using Terraform')
+  }
+
   stages {
+
     stage('Checkout') {
       steps {
+        echo '📥 Checking out source code...'
         checkout scm
       }
     }
 
-    stage('Unit test') {
+    stage('Unit Test') {
       steps {
+        echo '🧪 Running tests (if any)...'
         sh 'echo "No unit tests configured. Add tests to app/tests/ and run them here."'
       }
     }
@@ -30,11 +38,10 @@ pipeline {
     stage('Build Docker Image') {
       steps {
         script {
-          // Use git commit SHA for tagging
           COMMIT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
           IMAGE_TAG = "${COMMIT_SHA}"
           imageName = "${ECR_REPO}:${IMAGE_TAG}"
-          echo "Building ${imageName}"
+          echo "🐳 Building Docker image: ${imageName}"
           sh "docker build -t ${imageName} -f app/Dockerfile app/"
         }
       }
@@ -44,10 +51,9 @@ pipeline {
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
           script {
-            // region must match Terraform's region
+            echo '🔐 Logging into ECR and pushing image...'
             sh '''
-              AWS_REGION=${region:-us-east-1}
-              aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin ${ECR_REGISTRY}
+              aws ecr get-login-password --region ${REGION} | docker login --username AWS --password-stdin ${ECR_REGISTRY}
               docker push ${imageName}
             '''
           }
@@ -55,13 +61,16 @@ pipeline {
       }
     }
 
-    stage('Terraform: Plan & Apply (Provision infra)') {
-      when { expression { return params.RUN_TERRAFORM == true || env.RUN_TERRAFORM == 'true' } }
+    stage('Terraform: Init & Apply') {
+      when { expression { return params.RUN_TERRAFORM == true } }
       steps {
         withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
           dir('terraform') {
-            sh 'terraform init -input=false'
-            sh 'terraform apply -auto-approve'
+            echo '🌍 Initializing and applying Terraform...'
+            sh '''
+              terraform init -input=false
+              terraform apply -auto-approve
+            '''
           }
         }
       }
@@ -69,13 +78,15 @@ pipeline {
 
     stage('Deploy to EKS') {
       steps {
-        script {
-          // stash the kubeconfig if stored in credentials
-          withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
-            sh 'export KUBECONFIG=$KUBECONFIG_FILE'
-            // Update k8s manifest with new image
-            sh "sed -i 's|<ECR_IMAGE_URI>|${imageName}|g' k8s/deployment.yaml || true"
-            sh './scripts/deploy_k8s.sh'
+        withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
+          script {
+            echo '🚀 Deploying to Kubernetes (EKS)...'
+            sh '''
+              export KUBECONFIG=$KUBECONFIG_FILE
+              sed -i "s|<ECR_IMAGE_URI>|${imageName}|g" k8s/deployment.yaml || true
+              kubectl apply -f k8s/deployment.yaml
+              kubectl apply -f k8s/service.yaml
+            '''
           }
         }
       }
@@ -84,10 +95,12 @@ pipeline {
 
   post {
     success {
-      echo 'Pipeline completed successfully.'
+      echo '✅ Pipeline completed successfully!'
+      cleanWs()
     }
     failure {
-      echo 'Pipeline failed. Inspect logs and fix.'
+      echo '❌ Pipeline failed. Check logs for errors.'
+      cleanWs()
     }
   }
 }

@@ -1,14 +1,20 @@
 output "cluster_name" {
   description = "EKS Cluster name"
-  value       = module.eks.cluster_id
+  value       = module.eks.cluster_name
 }
 
-output "kubeconfig" {
-  description = "Kubeconfig content (sensitive) - write to a file locally to use kubectl"
-  value       = module.eks.kubeconfig
-  sensitive   = true
+output "cluster_endpoint" {
+  description = "EKS Cluster API server endpoint"
+  value       = module.eks.cluster_endpoint
+}
+
+output "cluster_certificate_authority_data" {
+  description = "EKS Cluster Certificate Authority data"
+  value       = module.eks.cluster_certificate_authority_data
 }
 
 output "ecr_repo_url" {
-  value = aws_ecr_repository.app_repo.repository_url
+  description = "ECR Repository URL"
+  value       = aws_ecr_repository.app_repo.repository_url
 }
+
