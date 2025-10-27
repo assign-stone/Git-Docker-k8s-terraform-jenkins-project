@@ -1,120 +1,80 @@
 pipeline {
-  agent any
+agent any
 
-  environment {
-    AWS_CREDENTIALS_ID = 'aws-creds'         // AWS credentials (IAM user with ECR + EKS + Terraform access)
-    KUBECONFIG_CREDENTIALS_ID = 'kubeconfig' // kubeconfig uploaded as Secret File
-    ECR_REGISTRY = '434748569332.dkr.ecr.us-east-1.amazonaws.com' // replace with your AWS account ID & region
-    ECR_REPO = '434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app' // your ECR repo URI
-    REGION = 'us-east-1'
-  }
+environment {
+    REGION = 'ap-south-1'
+    ECR_REPO = 'git-docker-k8s-terraform-repo'
+    IMAGE_NAME = 'app-image'
+}
 
-  options {
-    skipDefaultCheckout false
-    timestamps()
-  }
-
-  parameters {
-    booleanParam(name: 'RUN_TERRAFORM', defaultValue: false, description: 'Provision infrastructure using Terraform')
-  }
-
-  stages {
-
-    stage('Checkout') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          echo '📥 Checking out source code...'
-          checkout scm
+stages {
+    stage('Checkout Code') {
+        steps {
+            git branch: 'main', url: 'https://github.com/assign-stone/Git-Docker-k8s-terraform-jenkins-project.git'
         }
-      }
-    }
-
-    stage('Unit Test') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          echo '🧪 Running tests (if any)...'
-          sh 'echo "No unit tests configured. Add tests to app/tests/ and run them here."'
-        }
-      }
     }
 
     stage('Build Docker Image') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          script {
-            def COMMIT_SHA = sh(returnStdout: true, script: 'git rev-parse --short HEAD').trim()
-            def IMAGE_TAG = "${COMMIT_SHA}"
-            def imageName = "${ECR_REPO}:${IMAGE_TAG}"
-            echo "🐳 Building Docker image: ${imageName}"
-            sh "docker build -t ${imageName} -f app/Dockerfile app/"
-            env.IMAGE_NAME = imageName
-          }
+        steps {
+            script {
+                sh '''
+                echo "Building Docker image..."
+                docker build -t ${IMAGE_NAME}:latest .
+                '''
+            }
         }
-      }
     }
 
     stage('Login & Push to ECR') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-            script {
-              echo '🔐 Logging into ECR and pushing image...'
-              sh '''
-                AWS_REGION=${REGION}
-                ECR_REGISTRY=$(echo ${ECR_REPO} | cut -d'/' -f1)
-                aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
-                docker push ${IMAGE_NAME}
-              '''
+        steps {
+            withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: 'aws-credentials']]) {
+                script {
+                    sh '''
+                    echo "=== Checking required environment variables ==="
+                    if [ -z "$REGION" ] || [ -z "$ECR_REPO" ] || [ -z "$IMAGE_NAME" ]; then
+                      echo "❌ One or more required environment variables are missing!"
+                      echo "REGION=$REGION"
+                      echo "ECR_REPO=$ECR_REPO"
+                      echo "IMAGE_NAME=$IMAGE_NAME"
+                      exit 1
+                    fi
+                    
+                    echo "✅ All environment variables are set."
+                    
+                    AWS_REGION=${REGION}
+                    ECR_REGISTRY=$(aws sts get-caller-identity --query 'Account' --output text).dkr.ecr.${AWS_REGION}.amazonaws.com
+                    
+                    echo "Logging into ECR..."
+                    aws ecr get-login-password --region $AWS_REGION | docker login --username AWS --password-stdin $ECR_REGISTRY
+                    
+                    echo "Tagging and pushing image..."
+                    docker tag ${IMAGE_NAME}:latest $ECR_REGISTRY/${ECR_REPO}:latest
+                    docker push $ECR_REGISTRY/${ECR_REPO}:latest
+                    '''
+                }
             }
-          }
         }
-      }
     }
 
     stage('Terraform: Init & Apply') {
-      when { expression { return params.RUN_TERRAFORM == true } }
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', credentialsId: env.AWS_CREDENTIALS_ID]]) {
-            dir('terraform') {
-              echo '🌍 Initializing and applying Terraform...'
-              sh '''
-                terraform init -input=false
-                terraform apply -auto-approve
-              '''
-            }
-          }
+        steps {
+            sh '''
+            cd terraform
+            terraform init
+            terraform apply -auto-approve
+            '''
         }
-      }
     }
 
     stage('Deploy to EKS') {
-      steps {
-        wrap([$class: 'AnsiColorBuildWrapper', 'colorMapName': 'xterm']) {
-          withCredentials([file(credentialsId: env.KUBECONFIG_CREDENTIALS_ID, variable: 'KUBECONFIG_FILE')]) {
-            script {
-              echo '🚀 Deploying to Kubernetes (EKS)...'
-              sh '''
-                export KUBECONFIG=$KUBECONFIG_FILE
-                sed -i "s|<ECR_IMAGE_URI>|${IMAGE_NAME}|g" k8s/deployment.yaml || true
-                kubectl apply -f k8s/deployment.yaml
-                kubectl apply -f k8s/service.yaml
-              '''
-            }
-          }
+        steps {
+            sh '''
+            aws eks update-kubeconfig --name my-eks-cluster --region ${REGION}
+            kubectl apply -f k8s/
+            '''
         }
-      }
     }
-  }
+}
 
-  post {
-    success {
-      echo '✅ Pipeline completed successfully!'
-      cleanWs()
-    }
-    failure {
-      echo '❌ Pipeline failed. Check logs for errors.'
-      cleanWs()
-    }
-  }
+
 }
