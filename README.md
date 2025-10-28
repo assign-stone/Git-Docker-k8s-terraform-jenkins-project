@@ -1,120 +1,245 @@
-# DevOps Portfolio: Git → Jenkins → Docker → AWS ECR → Terraform → EKS → Flask Web App
+# 🚀 Git-Docker-K8s-Terraform-Jenkins Project
 
-## Project Title
-Enterprise-grade CI/CD and Infrastructure Automation: Flask app deployed to AWS EKS with Terraform and Jenkins
+![Build](https://img.shields.io/badge/Build-Passing-brightgreen?style=for-the-badge)
+![Docker](https://img.shields.io/badge/Docker-Enabled-blue?style=for-the-badge\&logo=docker)
+![Terraform](https://img.shields.io/badge/Terraform-Infrastructure%20as%20Code-623CE4?style=for-the-badge\&logo=terraform)
+![AWS](https://img.shields.io/badge/AWS-EKS%20%7C%20ECR-orange?style=for-the-badge\&logo=amazonaws)
+![Kubernetes](https://img.shields.io/badge/Kubernetes-Deployed-326ce5?style=for-the-badge\&logo=kubernetes)
+![License](https://img.shields.io/badge/License-MIT-lightgrey?style=for-the-badge)
 
-## Description
-This repository demonstrates a complete DevOps workflow: source in GitHub triggers Jenkins builds that build Docker images and push to AWS ECR, Terraform provisions networking/EKS/ECR resources, and Jenkins deploys the application to the EKS cluster. The project is educational and production-ready as a portfolio piece or interview demonstrator.
+---
 
-## Architecture (high-level)
-Git (GitHub) → Jenkins (CI) → Docker build → AWS ECR (image registry) → Terraform (provision VPC/ECR/EKS) → kubectl (deploy) → EKS (Kubernetes) → Flask Web App
+An **end-to-end DevOps pipeline** that automates application deployment using **Git, Jenkins, Docker, Terraform, AWS ECR, and EKS**.
+This project demonstrates **continuous integration and continuous deployment (CI/CD)** of a Flask application running on Kubernetes (EKS), provisioned via Terraform.
 
-## Mermaid Flowchart
-```mermaid
-flowchart LR
-  subgraph Dev
-    A[Developer]
-    G[GitHub]
-  end
-  A -->|push| G
-  G -->|webhook| J[Jenkins]
-  J -->|build| D[Docker]
-  D -->|push| ECR[AWS ECR]
-  J -->|run| TF[Terraform]
-  TF -->|creates| EKS[AWS EKS]
-  J -->|kubectl apply| K8s[Kubernetes on EKS]
-  ECR -->|image| K8s
-  K8s -->|serves| Web[Flask App]
+---
+
+## 🧩 Project Overview
+
+**Workflow:**
+Git → Jenkins → Docker → AWS ECR → Kubernetes (EKS)
+
+Jenkins automates:
+
+* Building a Docker image from source code
+* Pushing it to AWS ECR
+* Deploying the containerized app to AWS EKS
+
+---
+
+## 🏗️ Architecture Diagram
+
+![Architecture Diagram](https://raw.githubusercontent.com/assign-stone/Git-Docker-k8s-terraform-jenkins-project/main/assets/architecture-diagram.png)
+
+```
+ Developer → GitHub Repo
+      ↓
+  Jenkins Pipeline (on EC2)
+      ↓
+  Docker Build & Push → AWS ECR
+      ↓
+  Deploy → AWS EKS Cluster via kubectl
 ```
 
-## Tech Stack Explanation
-- Git / GitHub: Source control and webhook triggers.
-- Jenkins: Central CI/CD orchestration (build, push, terraform apply, kubectl deploy). Jenkins integrates with credentials and scales with agents.
-- Docker: Package the Flask web app into immutable containers.
-- AWS ECR: Private container registry for storing images.
-- Terraform: Provision AWS infra (VPC, ECR, EKS cluster, node groups).
-- Kubernetes (EKS): Production-grade orchestration for the app.
-- kubectl / kubeconfig: Used by Jenkins to apply Kubernetes manifests.
+*(If the image doesn’t render, ensure `assets/architecture-diagram.png` exists in your repo.)*
 
 ---
 
-## Repository structure
+## 🛠️ Tech Stack
 
-- app/
-  - app.py               # Flask application
-  - requirements.txt     # Python deps
-  - Dockerfile           # Multi-stage production Dockerfile
-- k8s/
-  - deployment.yaml      # Kubernetes Deployment manifest
-  - service.yaml         # Kubernetes Service manifest
-- terraform/
-  - main.tf              # Provider, modules (VPC, EKS), ECR resource
-  - variables.tf         # Terraform variables
-  - outputs.tf           # Terraform outputs
-  - versions.tf          # Terraform required providers and versions
-- Jenkinsfile            # Declarative Jenkins pipeline
-- scripts/
-  - deploy_k8s.sh        # Small helper to apply k8s manifests via kubectl
-- .gitignore
-- README.md
+| Tool             | Purpose                     |
+| ---------------- | --------------------------- |
+| **Git & GitHub** | Source control              |
+| **Jenkins**      | CI/CD automation            |
+| **Docker**       | Containerization            |
+| **Terraform**    | Infrastructure provisioning |
+| **AWS ECR**      | Docker image registry       |
+| **AWS EKS**      | Kubernetes orchestration    |
+| **Flask**        | Application framework       |
 
 ---
 
-## Step-by-step workflow (summary)
-1. Developer pushes code to GitHub.
-2. GitHub webhook triggers Jenkins job.
-3. Jenkins pulls code, runs tests, builds Docker image and tags with commit SHA.
-4. Jenkins logs into ECR and pushes the image.
-5. Jenkins triggers Terraform (or Terraform step runs), provisioning EKS and ECR if not present.
-6. Jenkins updates `k8s/deployment.yaml` (image tag) and runs `kubectl apply` to deploy to EKS.
-7. App becomes available through the service load balancer.
+## 🌟 Features
+
+* Automated build and deploy pipeline
+* AWS-native infrastructure (ECR + EKS)
+* Terraform-managed cluster provisioning
+* Scalable Kubernetes deployment
+* Centralized CI/CD via Jenkins
 
 ---
 
-## Prerequisites
-- AWS account and IAM user with proper permissions (ECR, EKS, EC2, IAM, VPC, CloudWatch if used).
-- Jenkins server with the following on executor node(s): Docker, kubectl, aws-cli (or AWS CLI v2), terraform.
-- GitHub repository and webhook or GitHub Branch Source configuration for Jenkins.
-- Jenkins credentials configured for AWS (recommended: IAM user access key) and for kubeconfig or a machine that can assume role to interact with EKS.
-- local dev tools: docker, terraform, aws-cli, kubectl (for manual testing).
+## 📁 Project Structure
+
+```
+Git-Docker-k8s-terraform-jenkins-project/
+├── app/
+│   ├── Dockerfile
+│   ├── app.py
+│   ├── requirements.txt
+│   ├── static/
+│   └── templates/
+├── k8s/
+│   ├── deployment.yaml
+│   └── service.yaml
+├── terraform/
+│   ├── main.tf
+│   ├── variables.tf
+│   ├── outputs.tf
+│   └── versions.tf
+├── scripts/
+│   └── helper-scripts.sh (optional)
+└── Jenkinsfile
+```
 
 ---
 
-## Common errors & troubleshooting
-- AWS permissions errors (AccessDenied): Ensure the IAM principal used by Jenkins/terraform has ECR, EKS, IAM, EC2, CloudWatch, and VPC permissions.
-- ECR login failures: Ensure Jenkins uses `aws ecr get-login-password` with region and active AWS creds.
-- kubeconfig / RBAC errors: Ensure kubeconfig used by Jenkins has cluster credentials and proper RBAC to create deployments/services and update resources.
-- Terraform state lock or backend issues: Use remote state (S3 + DynamoDB) for team settings; local state is fine for demo but not production.
-- Docker build fails on CI: Check memory and disk space on Jenkins agent; use resource-limited builds.
+## ⚙️ Jenkins Pipeline Summary
+
+1. **Checkout Code** from GitHub
+2. **Build Docker Image** → `app/Dockerfile`
+3. **Tag & Push** to AWS ECR (`flask-app-repo`)
+4. **Deploy** image to AWS EKS using manifests in `/k8s`
 
 ---
 
-## Security best practices
-- Do NOT store AWS keys in plaintext. Use Jenkins Credentials and bind them as environment variables or use the AWS Credentials plugin.
-- Use IAM roles for EC2 (if Jenkins runs on EC2) or OIDC for GitHub Actions to avoid long-lived credentials.
-- Limit ECR public access; use private repositories.
-- Keep sensitive variables in Terraform remote state or secrets manager (not in git).
-- Use image scanning on push (ECR image scanning or third-party tools).
+## 🧠 Step-by-Step Setup Guide
+
+### 1. Launch EC2 Instance (Jenkins + Tools)
+
+Install core utilities:
+
+```bash
+sudo yum install -y git docker awscli terraform java-17-amazon-corretto
+sudo systemctl enable docker && sudo systemctl start docker
+sudo usermod -aG docker jenkins
+sudo systemctl restart jenkins
+```
 
 ---
 
-## How to test and verify the deployment (quick)
-1. Push a simple change to `app/app.py`.
-2. Confirm Jenkins started a build and the pipeline completes.
-3. Verify ECR has a new image tagged with the commit SHA.
-4. Check Terraform applied and EKS is active (via console or `kubectl get nodes`).
-5. Check deployment:
-   - kubectl get pods -n default
-   - kubectl get svc -n default
-6. Access the LoadBalancer endpoint returned by the Service.
+### 2. Install Jenkins
+
+```bash
+sudo wget -O /etc/yum.repos.d/jenkins.repo https://pkg.jenkins.io/redhat-stable/jenkins.repo
+sudo rpm --import https://pkg.jenkins.io/redhat-stable/jenkins.io-2023.key
+sudo dnf install -y jenkins
+sudo systemctl enable jenkins
+sudo systemctl start jenkins
+```
+
+Access Jenkins:
+`http://<EC2-Public-IP>:8080`
 
 ---
 
-## Next steps & extensions
-- Add blue/green or canary deployments with Argo Rollouts or Flagger.
-- Add TLS/HTTPS with AWS ALB Ingress Controller or AWS LoadBalancer Controller.
-- Add integration tests in Jenkins and promote to staging/production automatically.
+### 3. Setup Terraform Infrastructure
+
+```bash
+cd terraform
+terraform init -upgrade
+terraform validate
+terraform apply -auto-approve
+```
+
+Terraform provisions:
+
+* AWS VPC, Subnets, Security Groups
+* EKS Cluster & Node Group
+* ECR Repository (`flask-app-repo`)
 
 ---
 
-(See files in the repo for `Jenkinsfile`, `terraform/`, `k8s/`, and `app/`.)
+### 4. Configure kubectl with EKS
+
+```bash
+aws eks update-kubeconfig --region us-east-1 --name demo-eks-cluster
+kubectl get nodes
+```
+
+Ensure your worker nodes are in the **Ready** state.
+
+---
+
+### 5. Build and Push Docker Image
+
+Manually (for testing):
+
+```bash
+cd app
+docker build -t flask-app-repo .
+docker tag flask-app-repo:latest 434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app-repo:latest
+aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 434748569332.dkr.ecr.us-east-1.amazonaws.com
+docker push 434748569332.dkr.ecr.us-east-1.amazonaws.com/flask-app-repo:latest
+```
+
+---
+
+### 6. Kubernetes Deployment
+
+```bash
+cd k8s
+kubectl apply -f deployment.yaml
+kubectl apply -f service.yaml
+kubectl get pods -o wide
+kubectl get svc
+```
+
+Once service type = **LoadBalancer**, access your app via:
+
+```
+http://<elb-dns-name>
+```
+
+---
+
+### 7. Jenkins Pipeline Configuration
+
+* Job Type: **Pipeline**
+* Pipeline Definition: **Pipeline script from SCM**
+* GitHub Repo: `https://github.com/assign-stone/Git-Docker-k8s-terraform-jenkins-project.git`
+* Branch: `main`
+
+The pipeline automates:
+
+* Build → Tag → Push (ECR)
+* Deploy to EKS
+
+---
+
+## ✅ Verification
+
+Run:
+
+```bash
+kubectl get pods
+kubectl get svc
+```
+
+Access your app at the **LoadBalancer URL**.
+
+---
+
+## 🧾 Outputs
+
+* ECR Repo: `flask-app-repo`
+* EKS Cluster: `demo-eks-cluster`
+* Region: `us-east-1`
+* App URL: `<LoadBalancer-DNS>`
+
+---
+
+## 🧩 Improvements & Next Steps
+
+* Integrate SonarQube for code quality
+* Add Prometheus + Grafana for monitoring
+* Configure Blue/Green deployment with ArgoCD
+* Implement Slack notifications in Jenkins pipeline
+
+---
+
+## 👩‍💻 Author
+
+**Shivani Joshi**
+DevOps Engineer | AWS | Docker | Kubernetes | Terraform | Jenkins
+🔗 [GitHub: assign-stone](https://github.com/assign-stone)
