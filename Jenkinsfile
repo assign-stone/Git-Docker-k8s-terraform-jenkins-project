@@ -129,9 +129,9 @@ pipeline {
                                 ECR_NAME=\$(echo \${ECR_REPO} | cut -d'/' -f2)
                                 if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
                                 # Ensure the repository exists (create if missing)
-                                if ! aws ecr describe-repositories --repository-names \"$ECR_NAME\" --region \$AWS_REGION >/dev/null 2>&1; then
-                                    echo "ECR repository $ECR_NAME not found; creating..."
-                                    aws ecr create-repository --repository-name \"$ECR_NAME\" --region \$AWS_REGION || true
+                                    if ! aws ecr describe-repositories --repository-names "\$ECR_NAME" --region \$AWS_REGION >/dev/null 2>&1; then
+                                        echo "ECR repository \$ECR_NAME not found; creating..."
+                                        aws ecr create-repository --repository-name "\$ECR_NAME" --region \$AWS_REGION || true
                                 fi
                                 aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
                                 docker push ${imageNameToPush}
@@ -153,9 +153,9 @@ pipeline {
                                     ECR_NAME=\$(echo \${ECR_REPO} | cut -d'/' -f2)
                                     if ! command -v aws >/dev/null 2>&1; then echo 'aws CLI not found on agent; cannot push to ECR'; exit 1; fi
                                     # Ensure the repository exists (create if missing)
-                                    if ! aws ecr describe-repositories --repository-names \"$ECR_NAME\" --region \$AWS_REGION >/dev/null 2>&1; then
-                                        echo "ECR repository $ECR_NAME not found; creating..."
-                                        aws ecr create-repository --repository-name \"$ECR_NAME\" --region \$AWS_REGION || true
+                                        if ! aws ecr describe-repositories --repository-names "\$ECR_NAME" --region \$AWS_REGION >/dev/null 2>&1; then
+                                            echo "ECR repository \$ECR_NAME not found; creating..."
+                                            aws ecr create-repository --repository-name "\$ECR_NAME" --region \$AWS_REGION || true
                                     fi
                                     aws ecr get-login-password --region \$AWS_REGION | docker login --username AWS --password-stdin \$ECR_REGISTRY
                                     docker push ${imageNameToPush}
